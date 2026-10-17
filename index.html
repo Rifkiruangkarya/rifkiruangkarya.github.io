@@ -1,0 +1,379 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruang Karya</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f5fb;color:#24243a}
+header{background:linear-gradient(135deg,#302778,#7564e8);color:white;padding:22px 15px}
+header h1{margin:0 0 8px}
+header p{margin:0}
+main{padding:15px;max-width:1100px;margin:auto}
+button{border:0;border-radius:9px;padding:12px;background:#5748d5;color:white;font-weight:bold;cursor:pointer;touch-action:manipulation}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.5}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px}
+input{padding:12px;border:1px solid #ddd;border-radius:9px;font-size:16px;max-width:100%}
+#search{width:100%;margin-bottom:15px}
+.gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.tile{aspect-ratio:1;background:white;border:1px solid #ddd;border-radius:10px;overflow:hidden;position:relative}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile button{position:absolute;bottom:5px;right:5px;padding:7px;background:#17172acb;font-size:12px}
+.name{position:absolute;bottom:0;left:0;right:0;background:#0009;color:white;padding:6px;font-size:12px;overflow-wrap:anywhere}
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#777;font-size:12px;text-align:center}
+.empty button{position:static;background:#5748d5}
+.status{font-size:13px;color:#666;margin:12px 0}
+dialog{border:0;border-radius:14px;padding:20px;width:calc(100% - 28px);max-width:480px;max-height:90vh;overflow:auto}
+dialog::backdrop{background:#0008}
+.field{margin:12px 0}
+.field label{display:block;font-weight:bold;margin-bottom:6px}
+.field input{width:100%}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+.secondary{background:#e9e8fa;color:#302778}
+.danger{background:#bd253b}
+#preview img{max-width:100%;max-height:220px;object-fit:contain}
+#preview{margin-top:10px}
+footer{text-align:center;color:#777;padding:25px;font-size:12px}
+@media(min-width:700px){.gallery{grid-template-columns:repeat(5,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+
+<header>
+<h1>✦ Ruang Karya</h1>
+<p>Tempat berbagi karya dan kreativitas.</p>
+</header>
+
+<main>
+<div class="tools">
+<button id="add">＋ Tambah Kotak</button>
+<button id="upload">＋ Unggah Karya</button>
+<button id="admin">Mode Admin</button>
+</div>
+
+<input id="search" type="search" placeholder="Cari judul atau nama kreator...">
+<div class="status" id="status">Galeri siap digunakan.</div>
+<div class="gallery" id="gallery"></div>
+</main>
+
+<footer>Ruang Karya · Galeri Kreativitas</footer>
+
+<dialog id="uploadBox">
+<h2>Unggah Karya</h2>
+<form id="uploadForm">
+<div class="field">
+<label for="photo">Pilih gambar</label>
+<input id="photo" type="file" accept="image/jpeg,image/png,image/webp" required>
+</div>
+<div id="preview">Pratinjau gambar</div>
+<div class="field">
+<label for="title">Judul karya</label>
+<input id="title" maxlength="80" required>
+</div>
+<div class="field">
+<label for="creator">Nama kreator</label>
+<input id="creator" maxlength="50" required>
+</div>
+<p style="font-size:12px;color:#666">Gunakan gambar milik sendiri atau yang sudah mendapat izin.</p>
+<div class="actions">
+<button type="submit">Simpan Karya</button>
+<button type="button" class="secondary" id="cancelUpload">Batal</button>
+</div>
+</form>
+</dialog>
+
+<dialog id="viewBox">
+<h2 id="viewTitle"></h2>
+<p id="viewCreator"></p>
+<div id="viewImage"></div>
+<div class="actions">
+<button id="closeView">Tutup</button>
+</div>
+</dialog>
+
+<dialog id="adminBox">
+<h2>Mode Admin Lokal</h2>
+<p style="font-size:13px;color:#666">Mode demo ini tidak memakai akun online. Masukkan kata sandi yang kamu tentukan di kode.</p>
+<form id="adminForm">
+<div class="field">
+<label for="password">Kata sandi admin</label>
+<input id="password" type="password" required>
+</div>
+<div class="actions">
+<button type="submit">Masuk</button>
+<button type="button" class="secondary" id="closeAdmin">Tutup</button>
+</div>
+</form>
+<div id="adminTools" hidden>
+<p>Mode admin aktif di halaman ini.</p>
+<button id="exitAdmin" class="secondary">Keluar Admin</button>
+</div>
+</dialog>
+
+<script>
+(function(){
+"use strict";
+
+const $=id=>document.getElementById(id);
+const gallery=$("gallery");
+const status=$("status");
+const uploadBox=$("uploadBox");
+const viewBox=$("viewBox");
+const adminBox=$("adminBox");
+
+const ADMIN_PASSWORD="GantiKataSandi123";
+let works=[];
+let slots=30;
+let isAdmin=false;
+let currentPreview="";
+
+function say(message){
+  status.textContent=message;
+}
+
+function render(){
+  gallery.replaceChildren();
+
+  const query=$("search").value.trim().toLowerCase();
+  const filtered=works.filter(w=>
+    (w.title+" "+w.creator).toLowerCase().includes(query)
+  );
+
+  for(let i=0;i<Math.max(slots,filtered.length);i++){
+    const tile=document.createElement("div");
+    tile.className="tile";
+
+    const work=filtered[i];
+
+    if(work){
+      const img=document.createElement("img");
+      img.src=work.image;
+      img.alt=work.title;
+      tile.appendChild(img);
+
+      const name=document.createElement("div");
+      name.className="name";
+      name.textContent=work.creator;
+      tile.appendChild(name);
+
+      const open=document.createElement("button");
+      open.type="button";
+      open.textContent="Lihat";
+      open.onclick=()=>showWork(work);
+      tile.appendChild(open);
+
+      if(isAdmin){
+        const del=document.createElement("button");
+        del.type="button";
+        del.textContent="Hapus";
+        del.style.left="5px";
+        del.style.right="auto";
+        del.onclick=()=>deleteWork(work.id);
+        tile.appendChild(del);
+      }
+    }else{
+      const empty=document.createElement("div");
+      empty.className="empty";
+
+      const plus=document.createElement("span");
+      plus.textContent="+";
+      plus.style.fontSize="27px";
+
+      const label=document.createElement("span");
+      label.textContent="Kotak kosong";
+
+      const btn=document.createElement("button");
+      btn.type="button";
+      btn.textContent="Unggah";
+      btn.onclick=openUpload;
+
+      empty.append(plus,label,btn);
+      tile.appendChild(empty);
+    }
+
+    gallery.appendChild(tile);
+  }
+
+  say(filtered.length+" karya · "+Math.max(slots,filtered.length)+" kotak galeri");
+}
+
+function openUpload(){
+  $("uploadForm").reset();
+  $("preview").textContent="Pratinjau gambar";
+  currentPreview="";
+  uploadBox.showModal();
+}
+
+function showWork(work){
+  $("viewTitle").textContent=work.title;
+  $("viewCreator").textContent="Kreator: "+work.creator;
+
+  const box=$("viewImage");
+  box.replaceChildren();
+
+  const img=document.createElement("img");
+  img.src=work.image;
+  img.alt=work.title;
+  img.style.width="100%";
+  img.style.maxHeight="60vh";
+  img.style.objectFit="contain";
+  box.appendChild(img);
+
+  viewBox.showModal();
+}
+
+function deleteWork(id){
+  if(!isAdmin){
+    say("Silakan masuk Mode Admin terlebih dahulu.");
+    return;
+  }
+
+  if(!confirm("Hapus karya ini?"))return;
+
+  works=works.filter(w=>w.id!==id);
+  saveWorks();
+  render();
+}
+
+function saveWorks(){
+  try{
+    const data=JSON.stringify(works);
+    localStorage.setItem("ruangKaryaWorks",data);
+    return true;
+  }catch(error){
+    say("Penyimpanan penuh. Hapus sebagian karya atau gunakan gambar lebih kecil.");
+    return false;
+  }
+}
+
+function loadWorks(){
+  try{
+    const data=localStorage.getItem("ruangKaryaWorks");
+    if(data){
+      const parsed=JSON.parse(data);
+      if(Array.isArray(parsed))works=parsed;
+    }
+  }catch(error){
+    works=[];
+  }
+}
+
+$("add").addEventListener("click",()=>{
+  slots+=30;
+  render();
+});
+
+$("upload").addEventListener("click",openUpload);
+$("cancelUpload").addEventListener("click",()=>uploadBox.close());
+$("closeView").addEventListener("click",()=>viewBox.close());
+$("search").addEventListener("input",render);
+
+$("photo").addEventListener("change",()=>{
+  const file=$("photo").files[0];
+  if(!file)return;
+
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)){
+    $("photo").value="";
+    alert("Pilih gambar JPG, PNG, atau WebP.");
+    return;
+  }
+
+  if(file.size>2*1024*1024){
+    $("photo").value="";
+    alert("Untuk penyimpanan lokal, pilih gambar maksimal 2 MB.");
+    return;
+  }
+
+  const reader=new FileReader();
+
+  reader.onload=()=>{
+    currentPreview=reader.result;
+    const img=document.createElement("img");
+    img.src=currentPreview;
+    img.alt="Pratinjau";
+    $("preview").replaceChildren(img);
+  };
+
+  reader.onerror=()=>alert("Gagal membaca gambar.");
+  reader.readAsDataURL(file);
+});
+
+$("uploadForm").addEventListener("submit",event=>{
+  event.preventDefault();
+
+  const title=$("title").value.trim();
+  const creator=$("creator").value.trim();
+
+  if(!currentPreview){
+    alert("Pilih gambar terlebih dahulu.");
+    return;
+  }
+
+  if(!title||!creator){
+    alert("Isi judul dan nama kreator.");
+    return;
+  }
+
+  const work={
+    id:Date.now().toString()+"-"+Math.random().toString(36).slice(2),
+    title:title.slice(0,80),
+    creator:creator.slice(0,50),
+    image:currentPreview
+  };
+
+  works.unshift(work);
+
+  if(!saveWorks()){
+    works.shift();
+    return;
+  }
+
+  uploadBox.close();
+  render();
+  say("Karya berhasil disimpan di browser HP ini.");
+});
+
+$("admin").addEventListener("click",()=>{
+  $("adminForm").hidden=false;
+  $("adminTools").hidden=!isAdmin;
+  adminBox.showModal();
+});
+
+$("adminForm").addEventListener("submit",event=>{
+  event.preventDefault();
+
+  if($("password").value!==ADMIN_PASSWORD){
+    alert("Kata sandi salah.");
+    return;
+  }
+
+  isAdmin=true;
+  $("adminForm").hidden=true;
+  $("adminTools").hidden=false;
+  $("password").value="";
+  render();
+  say("Mode Admin aktif di halaman ini.");
+});
+
+$("closeAdmin").addEventListener("click",()=>adminBox.close());
+
+$("exitAdmin").addEventListener("click",()=>{
+  isAdmin=false;
+  $("adminForm").hidden=false;
+  $("adminTools").hidden=true;
+  adminBox.close();
+  render();
+  say("Kamu sudah keluar dari Mode Admin.");
+});
+
+loadWorks();
+render();
+
+})();
+</script>
+</body>
+  </html>
+                                
